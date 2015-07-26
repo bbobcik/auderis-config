@@ -29,10 +29,12 @@ import java.lang.reflect.Method;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -50,32 +52,41 @@ class ConfigurationDataAccessProxyHandler implements InvocationHandler {
 
 	private final ConfigurationDataProvider dataProvider;
 	private final ConcurrentMap<Method, SoftReference<Object>> cache;
+	private final ConcurrentMap<Method, TranslationPhase> successfulPhase;
+
 	private final boolean strictMode;
 
 	ConfigurationDataAccessProxyHandler(ConfigurationDataProvider dataProvider, boolean strictMode) {
 		assert null != dataProvider;
 		this.dataProvider = dataProvider;
-		this.cache = new ConcurrentHashMap<Method, SoftReference<Object>>();
+		this.cache = new ConcurrentHashMap<Method, SoftReference<Object>>(64);
+		this.successfulPhase = new ConcurrentHashMap<Method, TranslationPhase>(64);
 		this.strictMode = strictMode;
 	}
 
 	@Override
 	public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
 		assert (null == args) || (0 != args.length);
-		// Try to reuse cached value
-		if ((null == args) && cache.containsKey(method)) {
-			final SoftReference<Object> resultRef = cache.get(method);
-			final Object result = resultRef.get();
-			if (result == NULL_CACHE_ENTRY) {
+		if (null == args) {
+			// Bypass all processing if the previous no-arg call has failed to produce any result
+			if (TranslationPhase.NONE == successfulPhase.get(method)) {
 				return null;
-			} else if (null != result) {
-				return result;
 			}
-			// Soft-reference content was probably destroyed by garbage collector,
-			// remove stale cache entry and fall-back to normal value resolution
-			cache.remove(method, resultRef);
+			// Try to reuse cached value
+			final SoftReference<Object> cachedValueRef = cache.get(method);
+			if (null != cachedValueRef) {
+				final Object cachedValue = cachedValueRef.get();
+				if (NULL_CACHE_ENTRY == cachedValue) {
+					return null;
+				} else if (null != cachedValue) {
+					return cachedValue;
+				}
+				// Soft-reference content was probably destroyed by garbage collector,
+				// remove stale cache entry and fall back to normal value resolution
+				cache.remove(method, cachedValueRef);
+			}
 		}
-		// Compute result
+		// Get value to be translated to the result value
 		final String keyName = getResourceKey(method);
 		assert null != keyName;
 		final Object sourceValue;
@@ -84,9 +95,15 @@ class ConfigurationDataAccessProxyHandler implements InvocationHandler {
 		} else {
 			sourceValue = getDefaultSourceValue(method);
 		}
+		// Compute result
 		final Object result = translateObject(sourceValue, method, args);
-		// Cache result (only for no-argument methods)
+		// Handle no-argument calls specially
 		if (null == args) {
+			if (null == result) {
+				// If the translation didn't mark successful phase and returned null, consider it as failure
+				successfulPhase.putIfAbsent(method, TranslationPhase.NONE);
+			}
+			// Cache result
 			final Object cachedValue = (null != result) ? result : NULL_CACHE_ENTRY;
 			cache.put(method, new SoftReference<Object>(cachedValue));
 		}
@@ -104,45 +121,52 @@ class ConfigurationDataAccessProxyHandler implements InvocationHandler {
 
 	private Object translateObject(Object sourceValue, Method method, Object[] args) {
 		final Class<?> returnType = method.getReturnType();
+		final Set<TranslationPhase> remainingPhases = computeRemainingPhases(method);
 		// Case 1: handle text-based types
-		if (String.class == returnType) {
+		if (remainingPhases.contains(TranslationPhase.PARSE_STRING) && (String.class.isAssignableFrom(returnType))) {
 			final String textResult = translateToString(sourceValue, args);
+			successfulPhase.put(method, TranslationPhase.PARSE_STRING);
 			return textResult;
 		}
-		final StandardJavaTranslator standardTranslator = StandardJavaTranslator.instance();
+		final StandardJavaTranslator stdTranslator = StandardJavaTranslator.instance();
 		// Case 2: handle enums (strict mode = throws exception if enum cannot be resolved)
-		if (returnType.isEnum()) {
-			final Object enumResult = standardTranslator.translateEnum(sourceValue, returnType, strictMode);
+		if (remainingPhases.contains(TranslationPhase.PARSE_ENUM) && returnType.isEnum()) {
+			final Object enumResult = stdTranslator.translateEnum(sourceValue, returnType, strictMode);
+			successfulPhase.put(method, TranslationPhase.PARSE_ENUM);
 			return enumResult;
 		}
 		// Handle primitive types regardless whether they are boxed or unboxed (strict mode = throws exception
 		// if the text-to-number parser fails)
-		if (standardTranslator.isPrimitiveOrBoxed(returnType)) {
-			final Object primitiveResult = standardTranslator.translatePrimitive(sourceValue, returnType, strictMode);
+		if (remainingPhases.contains(TranslationPhase.PARSE_PRIMITIVE) && stdTranslator.isPrimitiveOrBoxed(returnType)) {
+			final Object primitiveResult = stdTranslator.translatePrimitive(sourceValue, returnType, strictMode);
+			successfulPhase.put(method, TranslationPhase.PARSE_PRIMITIVE);
 			return primitiveResult;
 		}
 		// Try to apply plugin data translators
-		final Object pluginResult = tryPluginTranslator(sourceValue, returnType, method, args);
-		if (null != pluginResult) {
-			return (DataTranslator.NULL_OBJECT != pluginResult) ? pluginResult : null;
+		if (remainingPhases.contains(TranslationPhase.APPLY_PLUGIN)) {
+			final Object pluginResult = tryPluginTranslator(sourceValue, returnType, method, args);
+			if (null != pluginResult) {
+				successfulPhase.put(method, TranslationPhase.APPLY_PLUGIN);
+				return (DataTranslator.NULL_OBJECT != pluginResult) ? pluginResult : null;
+			}
 		}
 		// Attempt to construct target type by feeding the source value into an appropriate constructor
-		final Object constructedResult = tryConstruct(sourceValue, returnType, args);
-		if (null != constructedResult) {
-			return constructedResult;
-		}
-		// Try special cases
-		if (null != sourceValue) {
-			if ((Class.class == returnType) && (sourceValue instanceof String)) {
-				try {
-					final Class<?> classResult = Class.forName((String) sourceValue);
-					return classResult;
-				} catch (ClassNotFoundException e) {
-					// Exception ignored
-				}
+		if (remainingPhases.contains(TranslationPhase.CONSTRUCT_INSTANCE)) {
+			final Object constructedResult = tryConstruct(sourceValue, returnType, args);
+			if (null != constructedResult) {
+				successfulPhase.put(method, TranslationPhase.CONSTRUCT_INSTANCE);
+				return constructedResult;
 			}
 		}
 		return null;
+	}
+
+	private Set<TranslationPhase> computeRemainingPhases(Method method) {
+		final TranslationPhase phase = successfulPhase.get(method);
+		if (null == phase) {
+			return EnumSet.allOf(TranslationPhase.class);
+		}
+		return EnumSet.range(phase, TranslationPhase.NONE);
 	}
 
 	private String translateToString(Object sourceValue, Object[] args) {
@@ -400,7 +424,7 @@ class ConfigurationDataAccessProxyHandler implements InvocationHandler {
 		return true;
 	}
 
-	protected static final class TranslatorCandidate implements Comparable<TranslatorCandidate> {
+	static final class TranslatorCandidate implements Comparable<TranslatorCandidate> {
 
 		final DataTranslator translator;
 		final int priority;
@@ -432,8 +456,7 @@ class ConfigurationDataAccessProxyHandler implements InvocationHandler {
 		}
 	}
 
-
-	protected static final class DataTranslatorContextImpl implements DataTranslatorContext {
+	static final class DataTranslatorContextImpl implements DataTranslatorContext {
 
 		private final AnnotatedElement element;
 		private final Object[] arguments;
@@ -459,6 +482,16 @@ class ConfigurationDataAccessProxyHandler implements InvocationHandler {
 		public boolean isStrictModeEnabled() {
 			return strictMode;
 		}
+	}
+
+	enum TranslationPhase {
+		PARSE_STRING,
+		PARSE_ENUM,
+		PARSE_PRIMITIVE,
+		APPLY_PLUGIN,
+		CONSTRUCT_INSTANCE,
+		// NONE must be the last element, as it is used in EnumSet.range() call
+		NONE
 	}
 
 }
