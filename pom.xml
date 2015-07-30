@@ -20,7 +20,7 @@
 
 	<groupId>cz.auderis</groupId>
 	<artifactId>auderis-config</artifactId>
-	<version>1.0.1-SNAPSHOT</version>
+	<version>1.0.1</version>
 	<packaging>jar</packaging>
 
 	<name>Auderis Configuration</name>
@@ -52,7 +52,7 @@
 		<url>git@github.com:bbobcik/auderis-config.git</url>
 		<connection>scm:git:git@github.com:bbobcik/auderis-config.git</connection>
 		<developerConnection>scm:git:git@github.com:bbobcik/auderis-config.git</developerConnection>
-		<tag>HEAD</tag>
+		<tag>auderis-config-1.0.1</tag>
 	</scm>
 
 	<dependencies>
