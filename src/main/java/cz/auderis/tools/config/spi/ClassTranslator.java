@@ -19,6 +19,11 @@ package cz.auderis.tools.config.spi;
 import cz.auderis.tools.config.ConfigurationDataException;
 import cz.auderis.tools.config.DataTranslatorContext;
 
+/**
+ *
+ * @author Boleslav Bobcik &lt;bbobcik@gmail.com&gt;
+ * @version 1.0
+ */
 public class ClassTranslator extends SingleTargetClassTranslator {
 
 	public ClassTranslator() {

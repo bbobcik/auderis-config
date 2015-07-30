@@ -26,8 +26,8 @@ import java.lang.annotation.Target;
 /**
  * This method-level annotation is used for specification of
  * explicit configuration entry name. If this annotation is not
- * present, by default the name of the method with optional getter
- * prefix stripped is used).
+ * present, by default the name of the method (with standard property
+ * accessor prefixes {@code get} and {@code is} stripped if present).
  *
  * <p>The annotation may define optional aliases, if the configuration
  * entry may be known under multiple names.
@@ -68,7 +68,8 @@ public @interface ConfigurationEntry {
 	/**
 	 * If the type of configuration entry is a collection, it is necessary to determine the legal type
 	 * of the collection's items. Using this attribute the type is established for the purpose of parsing.
-	 * @return
+	 *
+	 * @return base type of items in collection class
 	 */
 	Class<?> collectionItemType() default Void.class;
 

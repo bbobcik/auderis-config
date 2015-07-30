@@ -29,6 +29,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.StringTokenizer;
 
+/**
+ *
+ * @author Boleslav Bobcik &lt;bbobcik@gmail.com&gt;
+ * @version 1.0
+ */
 public class EnumSetTranslator implements DataTranslator {
 
 	private static final String ENUM_ID_SEPARATOR_CHARS = ",;: \t\r\n";

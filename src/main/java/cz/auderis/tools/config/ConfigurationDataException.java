@@ -16,6 +16,11 @@
 
 package cz.auderis.tools.config;
 
+/**
+ *
+ * @author Boleslav Bobcik &lt;bbobcik@gmail.com&gt;
+ * @version 1.0
+ */
 public class ConfigurationDataException extends RuntimeException {
 	private static final long serialVersionUID = -7600954656670158075L;
 

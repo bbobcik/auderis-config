@@ -355,10 +355,31 @@ class ConfigurationDataAccessProxyHandler implements InvocationHandler {
 			}
 			final String[] keyAliases = nameAnnotation.alias();
 			if ((null != keyAliases) && (0 != keyAliases.length)) {
-				// Some aliases are defined
+				// Aliases are defined, try them in order
 				for (String alias : keyAliases) {
-					if ((null != alias) && !alias.isEmpty() && dataProvider.containsKey(keyPrefix + alias)) {
+					// Skip blanks
+					if ((null == alias) || alias.trim().isEmpty()) {
+						continue;
+					}
+					// Qualified alias is a string that contains dot characters
+					final int firstDotIndex = alias.indexOf('.');
+					// If the dot is the leading character, it means that the alias following the initial dot
+					// is a fully-qualified name that shouldn't be considered with prepended prefix
+					if (0 == firstDotIndex) {
+						final String qualifiedAlias = alias.substring(1);
+						if (dataProvider.containsKey(qualifiedAlias)) {
+							return qualifiedAlias;
+						}
+						// Do not check prefixed alias
+						continue;
+					}
+					// Try to prepend prefix to both qualified and unqualified aliases
+					if (dataProvider.containsKey(keyPrefix + alias)) {
 						return keyPrefix + alias;
+					}
+					// Check if qualified alias exists without prefix
+					if ((-1 != firstDotIndex) && (dataProvider.containsKey(alias))) {
+						return alias;
 					}
 				}
 			}

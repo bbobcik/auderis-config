@@ -17,6 +17,7 @@
 package cz.auderis.tools.config;
 
 import cz.auderis.test.category.UnitTest;
+import cz.auderis.tools.config.annotation.ConfigurationEntries;
 import cz.auderis.tools.config.annotation.ConfigurationEntry;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -51,6 +52,38 @@ public class ConfigurationEntryNamingTest {
 		// Override
 		@ConfigurationEntry(name = "getId") String getId();
 	}
+
+	@ConfigurationEntries(prefix = "test1")
+	public interface TestDataParent {
+		String a();
+		String b();
+		String c();
+		String d();
+	}
+
+	public interface TestDataMiddle extends TestDataParent {
+		@Override String b();
+		String e();
+		String f();
+		String g();
+	}
+
+	@ConfigurationEntries(prefix = ConfigurationEntries.CLASS_NAME_PREFIX)
+	public interface TestDataMiddle2 extends TestDataMiddle {
+		@Override String c();
+		@Override String f();
+		String h();
+		String i();
+	}
+
+	@ConfigurationEntries(prefix = "test2")
+	public interface TestDataChild extends TestDataMiddle2 {
+		@Override String d();
+		@Override String g();
+		@Override String i();
+		String j();
+	}
+
 
 	@Test
 	@Category(UnitTest.class)
@@ -100,6 +133,126 @@ public class ConfigurationEntryNamingTest {
 			assertThat(testObject.isArmed(), nullValue());
 			assertThat(testObject.getId(), is(dataPoint[4]));
 		}
+	}
+
+	@Test
+	@Category(UnitTest.class)
+	public void shouldUseSimplePrefixForFlatInterface() throws Exception {
+		// Given
+		final ConfigurationDataProvider cfgData = identityProvider("test1", "X", "a", "b", "c", "d");
+		// When
+		final TestDataParent testObject = ConfigurationData.createConfigurationObject(cfgData, TestDataParent.class);
+		// Then
+		assertThat(testObject.a(), is("aX"));
+		assertThat(testObject.b(), is("bX"));
+		assertThat(testObject.c(), is("cX"));
+		assertThat(testObject.d(), is("dX"));
+	}
+
+	@Test
+	@Category(UnitTest.class)
+	public void shouldInheritPrefixFromInterfaceAnnotation() throws Exception {
+		// Given
+		final ConfigurationDataProvider data1 = identityProvider("test1", "X", "a", "b", "c", "d");
+		final ConfigurationDataProvider data2 = identityProvider(null, "Y", "b", "e", "f", "g");
+		final ConfigurationDataProvider cfgData = union(data1, data2);
+		// When
+		final TestDataMiddle testObject = ConfigurationData.createConfigurationObject(cfgData, TestDataMiddle.class);
+		// Then
+		assertThat(testObject.a(), is("aX"));
+		assertThat(testObject.b(), is("bY"));
+		assertThat(testObject.c(), is("cX"));
+		assertThat(testObject.d(), is("dX"));
+		assertThat(testObject.e(), is("eY"));
+		assertThat(testObject.f(), is("fY"));
+		assertThat(testObject.g(), is("gY"));
+	}
+
+	@Test
+	@Category(UnitTest.class)
+	public void shouldNameEntriesByDeclaringClass() throws Exception {
+		// Given
+		final ConfigurationDataProvider data1 = identityProvider("test1", "K", "a", "b", "c", "d");
+		final ConfigurationDataProvider data2 = identityProvider(null, "L", "b", "e", "f", "g");
+		final ConfigurationDataProvider data3 = identityProvider("TestDataMiddle2", "M", "c", "f", "h", "i");
+		final ConfigurationDataProvider data4 = identityProvider("test2", "N", "d", "g", "i", "j");
+		//
+		final ConfigurationDataProvider cfgData = union(data1, data2, data3, data4);
+		// When
+		final TestDataChild testObject = ConfigurationData.createConfigurationObject(cfgData, TestDataChild.class);
+		// Then
+		assertThat(testObject.a(), is("aK"));
+		assertThat(testObject.b(), is("bL"));
+		assertThat(testObject.c(), is("cM"));
+		assertThat(testObject.d(), is("dN"));
+		assertThat(testObject.e(), is("eL"));
+		assertThat(testObject.f(), is("fM"));
+		assertThat(testObject.g(), is("gN"));
+		assertThat(testObject.h(), is("hM"));
+		assertThat(testObject.i(), is("iN"));
+		assertThat(testObject.j(), is("jN"));
+	}
+
+
+
+	private static ConfigurationDataProvider union(final ConfigurationDataProvider... providers) {
+		return new ConfigurationDataProvider() {
+			@Override
+			public boolean containsKey(String key) {
+				for (final ConfigurationDataProvider provider : providers) {
+					if (provider.containsKey(key)) {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			@Override
+			public Object getRawObject(String key) {
+				for (final ConfigurationDataProvider provider : providers) {
+					if (provider.containsKey(key)) {
+						return provider.getRawObject(key);
+					}
+				}
+				return null;
+			}
+		};
+	}
+
+	private static ConfigurationDataProvider identityProvider(String prefix, String suffix, final String... keys) {
+		final String keyPrefix;
+		if ((null == prefix) || prefix.trim().isEmpty()) {
+			keyPrefix = "";
+		} else {
+			keyPrefix = prefix + '.';
+		}
+		final String valueSuffix;
+		if ((null == suffix) || suffix.trim().isEmpty()) {
+			valueSuffix = "";
+		} else {
+			valueSuffix = suffix;
+		}
+		return new ConfigurationDataProvider() {
+			@Override
+			public boolean containsKey(String key) {
+				for (final String k : keys) {
+					if (key.equals(keyPrefix + k)) {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			@Override
+			public Object getRawObject(String key) {
+				for (final String k : keys) {
+					if (key.equals(keyPrefix + k)) {
+						return k + valueSuffix;
+					}
+				}
+				return null;
+			}
+		};
 	}
 
 }

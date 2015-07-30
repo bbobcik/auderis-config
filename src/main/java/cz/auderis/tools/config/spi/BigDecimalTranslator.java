@@ -22,6 +22,11 @@ import cz.auderis.tools.config.StandardJavaTranslator;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 
+/**
+ *
+ * @author Boleslav Bobcik &lt;bbobcik@gmail.com&gt;
+ * @version 1.0
+ */
 public class BigDecimalTranslator extends SingleTargetClassTranslator {
 
 	public BigDecimalTranslator() {

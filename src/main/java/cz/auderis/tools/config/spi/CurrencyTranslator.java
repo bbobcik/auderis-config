@@ -21,6 +21,11 @@ import cz.auderis.tools.config.DataTranslatorContext;
 
 import java.util.Currency;
 
+/**
+ *
+ * @author Boleslav Bobcik &lt;bbobcik@gmail.com&gt;
+ * @version 1.0
+ */
 public class CurrencyTranslator extends SingleTargetClassTranslator {
 
 	public CurrencyTranslator() {

@@ -20,6 +20,11 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ *
+ * @author Boleslav Bobcik &lt;bbobcik@gmail.com&gt;
+ * @version 1.0
+ */
 final class SimpleKeyNormalizingMap<T> implements Map<String, T> {
 	private final Map<String, T> delegate;
 
